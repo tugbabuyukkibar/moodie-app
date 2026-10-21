@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Moodie">
+<meta name="theme-color" content="#FFF6F9">
+<link rel="apple-touch-icon" href="moods/happy.png">
+<link rel="icon" href="moods/happy.png">
+<title>Moodie</title>
+<style>
+  /* Moodie remote: pick the clip's mood over Bluetooth LE (Web Bluetooth).
+     iPhone: open in the Bluefy browser. Mac / Android: Chrome. */
+  :root {
+    --bg: #FFF6F9;
+    --card: #FFFFFF;
+    --text: #3A2E44;
+    --muted: #8C7F96;
+    --accent: #E85C8A;
+    --accent-soft: #FFE0EA;
+    --ok: #2E9E6A;
+    --warn: #D9822B;
+    --ring: rgba(232, 92, 138, 0.55);
+    --shadow: 0 1px 2px rgba(58, 46, 68, 0.06), 0 4px 14px rgba(58, 46, 68, 0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1E1A24;
+      --card: #2A2432;
+      --text: #F3ECF7;
+      --muted: #A99DB3;
+      --accent: #FF7FA8;
+      --accent-soft: #3D2B38;
+      --ok: #5CCB98;
+      --warn: #F0A55B;
+      --ring: rgba(255, 127, 168, 0.7);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  }
+  main { max-width: 560px; margin: 0 auto; }
+
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 16px; }
+  h1 { font-size: 28px; margin: 0; letter-spacing: -0.02em; }
+  .status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--card); box-shadow: var(--shadow);
+    border-radius: 999px; padding: 6px 12px; font-size: 14px; color: var(--muted); white-space: nowrap;
+  }
+  .pill[hidden] { display: none; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .pill.on .dot { background: var(--ok); }
+  .pill.busy .dot { background: var(--warn); animation: pulse 1s infinite; }
+  .pill.low { color: var(--warn); }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+
+  .connect {
+    display: block; width: 100%; border: 0; cursor: pointer;
+    background: var(--accent); color: #fff; font: inherit; font-weight: 600; font-size: 18px;
+    border-radius: 16px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow);
+  }
+  .connect:active { transform: scale(0.98); }
+  .connect[hidden] { display: none; }
+
+  .note {
+    background: var(--accent-soft); border-radius: 14px; padding: 12px 14px; margin-bottom: 16px; font-size: 15px;
+  }
+  .note[hidden] { display: none; }
+
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  @media (min-width: 480px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+  .mood {
+    position: relative; border: 0; padding: 0; cursor: pointer; font: inherit; color: inherit;
+    background: var(--card); border-radius: 20px; overflow: hidden; box-shadow: var(--shadow);
+    transition: transform 0.12s, opacity 0.2s, box-shadow 0.2s;
+  }
+  .mood:active { transform: scale(0.96); }
+  .mood img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+  .mood span { display: block; padding: 8px 10px 10px; font-weight: 600; text-align: center; }
+  .mood.current { box-shadow: 0 0 0 3px var(--ring), var(--shadow); }
+  .mood.current::after {
+    content: "✓"; position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 15px; line-height: 26px; text-align: center;
+  }
+  .grid.off .mood { opacity: 0.45; }
+
+  footer { margin-top: 20px; text-align: center; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Moodie</h1>
+    <div class="status">
+      <span class="pill" id="battery" hidden></span>
+      <span class="pill" id="state"><span class="dot"></span><span id="state-text">Not connected</span></span>
+    </div>
+  </header>
+
+  <div class="note" id="unsupported" hidden>
+    This browser can't use Bluetooth. On iPhone, open this page in the free
+    <b>Bluefy</b> browser from the App Store. On a Mac or Android phone, use <b>Chrome</b>.
+  </div>
+  <div class="note" id="hint" hidden></div>
+
+  <button class="connect" id="connect">Connect to Moodie</button>
+
+  <div class="grid off" id="grid"></div>
+
+  <footer>Switch Moodie on with the right button first.</footer>
+</main>
+
+<script>
+  // Keep in sync with firmware/moodie/ble.h.
+  const SERVICE = "6d6f6f64-6965-4000-8000-00000000c1a0";
+  const MOOD = "6d6f6f64-6965-4000-8000-00000000c1a1";
+  const NAMES = "6d6f6f64-6965-4000-8000-00000000c1a2";
+  const BATTERY = "6d6f6f64-6965-4000-8000-00000000c1a3";
+
+  // Shown before the first connection; the clip sends its own list once connected.
+  const DEFAULT_MOODS = ["happy", "angry", "chocolate", "sleeping", "sick",
+                         "focus", "reading", "coffee", "sad", "hungry"];
+
+  const $ = (id) => document.getElementById(id);
+  let device = null, moodChar = null, current = -1, names = DEFAULT_MOODS;
+
+  function setState(text, kind) {
+    $("state-text").textContent = text;
+    $("state").className = "pill" + (kind ? " " + kind : "");
+  }
+
+  function hint(text) {
+    $("hint").textContent = text || "";
+    $("hint").hidden = !text;
+  }
+
+  function label(name) {
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  }
+
+  function renderGrid() {
+    const grid = $("grid");
+    grid.replaceChildren();
+    names.forEach((name, i) => {
+      const b = document.createElement("button");
+      b.className = "mood" + (i === current ? " current" : "");
+      b.setAttribute("aria-pressed", i === current);
+      const img = document.createElement("img");
+      img.src = `moods/${name}.png`;
+      img.alt = "";
+      img.onerror = () => { img.style.background = "var(--accent-soft)"; img.removeAttribute("src"); };
+      const span = document.createElement("span");
+      span.textContent = label(name);
+      b.append(img, span);
+      b.onclick = () => chooseMood(i);
+      grid.append(b);
+    });
+    grid.classList.toggle("off", !moodChar);
+  }
+
+  function showMood(i) {
+    current = i;
+    [...$("grid").children].forEach((b, j) => {
+      b.classList.toggle("current", j === i);
+      b.setAttribute("aria-pressed", j === i);
+    });
+  }
+
+  function showBattery(view) {
+    const pct = view.getInt8(0), mv = view.getUint16(1, true);
+    const pill = $("battery");
+    pill.hidden = false;
+    pill.classList.toggle("low", pct >= 0 && pct <= 15);
+    pill.textContent = pct < 0 ? "🔌 USB" : `🔋 ${pct}%`;
+    pill.title = `${(mv / 1000).toFixed(2)} V`;
+  }
+
+  async function chooseMood(i) {
+    if (!moodChar) return connect();
+    const previous = current;
+    showMood(i);  // feels instant; the clip confirms with a notification
+    try {
+      const data = new Uint8Array([i]);
+      await (moodChar.writeValueWithResponse ? moodChar.writeValueWithResponse(data)
+                                             : moodChar.writeValue(data));
+    } catch (e) {
+      showMood(previous);
+      hint("Couldn't change the mood. Is Moodie still on and nearby?");
+    }
+  }
+
+  async function setUp(server) {
+    const service = await server.getPrimaryService(SERVICE);
+    const namesChar = await service.getCharacteristic(NAMES);
+    names = new TextDecoder().decode(await namesChar.readValue()).split("\n").filter(Boolean);
+
+    moodChar = await service.getCharacteristic(MOOD);
+    moodChar.addEventListener("characteristicvaluechanged", (e) => showMood(e.target.value.getUint8(0)));
+    await moodChar.startNotifications();
+    current = (await moodChar.readValue()).getUint8(0);
+
+    const battery = await service.getCharacteristic(BATTERY);
+    battery.addEventListener("characteristicvaluechanged", (e) => showBattery(e.target.value));
+    await battery.startNotifications();
+    showBattery(await battery.readValue());
+
+    renderGrid();
+  }
+
+  async function connect() {
+    hint("");
+    try {
+      if (!device) {
+        device = await navigator.bluetooth.requestDevice({ filters: [{ services: [SERVICE] }] });
+        device.addEventListener("gattserverdisconnected", onDisconnected);
+      }
+      setState("Connecting…", "busy");
+      $("connect").hidden = true;
+      await setUp(await device.gatt.connect());
+      setState("Connected", "on");
+    } catch (e) {
+      moodChar = null;
+      renderGrid();
+      setState("Not connected");
+      $("connect").hidden = false;
+      if (e.name === "NotFoundError") hint("No Moodie picked. Is it switched on? Press its right button, then try again.");
+      else if (e.name !== "AbortError") hint("Couldn't connect: " + e.message);
+    }
+  }
+
+  function onDisconnected() {
+    moodChar = null;
+    renderGrid();
+    setState("Not connected");
+    $("battery").hidden = true;
+    $("connect").textContent = "Reconnect";
+    $("connect").hidden = false;
+    hint("Moodie disconnected. It may be switched off or out of range.");
+  }
+
+  $("connect").onclick = connect;
+  if (!navigator.bluetooth) {
+    $("unsupported").hidden = false;
+    $("connect").hidden = true;
+  }
+  renderGrid();
+</script>
+</body>
+</html>
